@@ -1,0 +1,31 @@
+######## 1. run fastqc for each .fq.gz file
+fastqc -o <outdir> <.fq.gz file>
+######## 2. run bowtie2 alignment
+bowtie2 -x /home/HRH/data/aligner_index/bowtie2_index/hg19 -1 **_1.fq.gz -2 **_2.fq.gz -p 2 -S **.sam -X 2000 >bowtie2.**.log
+######## 3. convert sam file to bam file, remove reads mapped to chrY and chrM and filter by mapping quality (mapq>30)
+samtools view -b -S **.sam -o **.bam  ## convert sam file to bam file
+samtools index **.bam ## index the bam file
+samtools view -b **.bam -o **_filterChr.bam chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX ##remove reads mapped to chrY and chrM 
+samtools view -b -f 2 -q 30 **_filterChr.bam -o **_filterChr_mapq30.bam ## filter mapped reads with MAPQ > 30
+##
+#samtools view -f 12 **_filterChr_mapq30.bam -c ## count the number of unmapped/mate unmapped reads. If the number is >0, unmapped reads should be removed
+rm **.sam
+######## 5.remove duplication
+##sort bam file
+samtools sort **_filterChr_mapq30.bam -o **_filterChr_mapq30_sorted.bam
+##remove duplicates with Picard
+picard MarkDuplicates I=**_filterChr_mapq30_sorted.bam O=**_filterChr_mapq30_sorted_rmdup.bam M=**_marked_dup_metrics.txt REMOVE_DUPLICATES=True
+
+####### 6. call peak with MACS2
+macs2 callpeak -t **_filterChr_mapq30_sorted_rmdup.bam --nomodel -g hs -n ./call_peak/** -q 0.05 --extsize 200 --shift -100 --keep-dup all -B --SPMR
+
+##### find correlation between replicates
+intersectBed -a rep1_peak.narrowPeak -b rep2_peak.narrowPeak |cut -f 1-3 >overlap_Peak.bed
+./reads_count_in_peaks.sh -bed overlap_Peak.bed -bam rep1_filterChr_mapq30_sorted_rmdup.bam -o rep1_qcFilter_readsCountinPeak.txt
+./reads_count_in_peaks.sh -bed overlap_Peak.bed -bam rep2_filterChr_mapq30_sorted_rmdup.bam -o rep1_qcFilter_readsCountinPeak.txt
+## paste log2(bam coverage) from two replicates together
+cut -f 3 rep1_qcFilter_readsCountinPeak.txt >rep1_list
+cut -f 3 rep2_qcFilter_readsCountinPeak.txt >rep2_list
+paste rep1_list rep2_list >ggplot2.correlation.input
+rm rep1_list rep2_list
+Rscript plot_correlation.R ###scatter plot
